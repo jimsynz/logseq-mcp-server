@@ -404,30 +404,29 @@ impl McpTestContext {
                                 println!("    📋 Pages found: {:?}", results);
 
                                 for result_row in results {
-                                    if let Some(row) = result_row.as_array() {
-                                        if let Some(page_name) =
+                                    if let Some(row) = result_row.as_array()
+                                        && let Some(page_name) =
                                             row.first().and_then(|n| n.as_str())
-                                        {
-                                            let delete_args = json!({
-                                                "page_name": page_name
-                                            });
+                                    {
+                                        let delete_args = json!({
+                                            "page_name": page_name
+                                        });
 
-                                            match self
-                                                .call_tool("delete_page", Some(delete_args))
-                                                .await
-                                            {
-                                                Ok(_) => {
-                                                    println!(
-                                                        "      ✓ Deleted MCP-TEST page: {}",
-                                                        page_name
-                                                    );
-                                                }
-                                                Err(e) => {
-                                                    println!(
-                                                        "      ⚠ Failed to delete MCP-TEST page {}: {}",
-                                                        page_name, e
-                                                    );
-                                                }
+                                        match self
+                                            .call_tool("delete_page", Some(delete_args))
+                                            .await
+                                        {
+                                            Ok(_) => {
+                                                println!(
+                                                    "      ✓ Deleted MCP-TEST page: {}",
+                                                    page_name
+                                                );
+                                            }
+                                            Err(e) => {
+                                                println!(
+                                                    "      ⚠ Failed to delete MCP-TEST page {}: {}",
+                                                    page_name, e
+                                                );
                                             }
                                         }
                                     }
