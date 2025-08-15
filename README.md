@@ -215,3 +215,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - 📦 **Repository**: https://harton.dev/james/logseq-mcp-server
 - 🗃️ **LogSeq**: https://logseq.com/
 - 🤖 **Model Context Protocol**: https://modelcontextprotocol.io/
+
+## Github Mirror
+
+This repository is mirrored [on Github](https://github.com/jimsynz/logseq-mcp-server) from it's primary location [on my Forgejo instance](https://harton.dev/james/logseq-mcp-server). Feel free to raise issues and open PRs on Github.
