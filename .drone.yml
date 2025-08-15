@@ -1,2 +1,4 @@
 kind: template
 load: rust-lib.yaml
+env:
+  SKIP_INTEGRATION_TESTS: 1

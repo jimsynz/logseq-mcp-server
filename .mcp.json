@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "logseq": {
+      "type": "stdio",
+      "command": "./target/debug/logseq-mcp-server",
+      "args": [],
+      "env": {}
+    }
+  }
+}

@@ -4,19 +4,19 @@ mod tools;
 use anyhow::Result;
 use logseq::api::{InsertBlockOptions, LogSeqClient};
 use rmcp::{
+    ErrorData as McpError,
     handler::server::ServerHandler,
     model::{
-        CallToolRequestParam, CallToolResult, InitializeResult,
-        ListToolsResult, PaginatedRequestParam, ProtocolVersion, RawContent, RawTextContent,
-        ServerCapabilities, ServerInfo, Tool, Implementation,
+        CallToolRequestParam, CallToolResult, Implementation, InitializeResult, ListToolsResult,
+        PaginatedRequestParam, ProtocolVersion, RawContent, RawTextContent, ServerCapabilities,
+        ServerInfo, Tool,
     },
     service::{RequestContext, RoleServer, ServiceExt},
     transport::io::stdio,
-    ErrorData as McpError,
 };
 use std::env;
 use std::sync::Arc;
-use tools::{format_blocks_as_markdown, format_search_results};
+use tools::{format_blocks_as_markdown, format_search_results, format_todos};
 
 #[derive(Clone, Default)]
 pub struct LogSeqMcpServer {
@@ -41,9 +41,7 @@ impl ServerHandler for LogSeqMcpServer {
     fn get_info(&self) -> ServerInfo {
         InitializeResult {
             protocol_version: ProtocolVersion::LATEST,
-            capabilities: ServerCapabilities::builder()
-                .enable_tools()
-                .build(),
+            capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation {
                 name: "logseq-mcp-server".into(),
                 version: env!("CARGO_PKG_VERSION").into(),
@@ -61,7 +59,7 @@ impl ServerHandler for LogSeqMcpServer {
             tools: vec![
                 Tool {
                     name: "list_pages".into(),
-                    description: Some("List all pages in the current LogSeq graph".into()),
+                    description: Some("List all pages in the current LogSeq graph. Returns a list of page names that can be used with other page-related tools.".into()),
                     input_schema: Arc::new(
                         serde_json::json!({
                             "type": "object",
@@ -77,14 +75,14 @@ impl ServerHandler for LogSeqMcpServer {
                 },
                 Tool {
                     name: "get_page_content".into(),
-                    description: Some("Get the content of a specific page".into()),
+                    description: Some("Get the content of a specific page formatted as markdown. Use this to read and understand the structure of a page's blocks and content.".into()),
                     input_schema: Arc::new(
                         serde_json::json!({
                             "type": "object",
                             "properties": {
                                 "page_name": {
                                     "type": "string",
-                                    "description": "The name or UUID of the page"
+                                    "description": "The name or UUID of the page. Page names are case-sensitive and should match exactly as they appear in LogSeq."
                                 }
                             },
                             "required": ["page_name"],
@@ -99,7 +97,7 @@ impl ServerHandler for LogSeqMcpServer {
                 },
                 Tool {
                     name: "create_page".into(),
-                    description: Some("Create a new page".into()),
+                    description: Some("Create a new page in LogSeq. You can optionally specify page properties like tags, template, aliases, and custom properties.".into()),
                     input_schema: Arc::new(
                         serde_json::json!({
                             "type": "object",
@@ -150,14 +148,14 @@ impl ServerHandler for LogSeqMcpServer {
                 },
                 Tool {
                     name: "search".into(),
-                    description: Some("Search across all pages".into()),
+                    description: Some("Search for content across all pages and blocks in the LogSeq graph. Returns matching blocks with their content and context.".into()),
                     input_schema: Arc::new(
                         serde_json::json!({
                             "type": "object",
                             "properties": {
                                 "query": {
                                     "type": "string",
-                                    "description": "Search query"
+                                    "description": "Search query string. Supports text search across block content. Use keywords or phrases to find relevant blocks."
                                 }
                             },
                             "required": ["query"],
@@ -172,22 +170,22 @@ impl ServerHandler for LogSeqMcpServer {
                 },
                 Tool {
                     name: "create_block".into(),
-                    description: Some("Insert a new block".into()),
+                    description: Some("Insert a new block into LogSeq. You can specify a parent page/block or insert relative to a sibling block. Returns the created block's UUID.".into()),
                     input_schema: Arc::new(
                         serde_json::json!({
                             "type": "object",
                             "properties": {
                                 "content": {
                                     "type": "string",
-                                    "description": "Block content"
+                                    "description": "Block content in markdown format. Can include text, links, formatting, and LogSeq-specific syntax."
                                 },
                                 "parent": {
                                     "type": "string",
-                                    "description": "Parent page or block UUID (optional)"
+                                    "description": "Parent page name or block UUID where this block should be created. If not specified, block will be created on the current page."
                                 },
                                 "sibling": {
                                     "type": "string",
-                                    "description": "Insert before this sibling block UUID (optional)"
+                                    "description": "Block UUID of an existing block. The new block will be inserted as a sibling at the same level."
                                 }
                             },
                             "required": ["content"],
@@ -202,14 +200,14 @@ impl ServerHandler for LogSeqMcpServer {
                 },
                 Tool {
                     name: "get_page".into(),
-                    description: Some("Get a specific page by name or UUID".into()),
+                    description: Some("Get detailed information about a specific page by name or UUID. Returns page metadata including properties, UUID, and structure.".into()),
                     input_schema: Arc::new(
                         serde_json::json!({
                             "type": "object",
                             "properties": {
                                 "name_or_uuid": {
                                     "type": "string",
-                                    "description": "The name or UUID of the page"
+                                    "description": "The page name (case-sensitive) or UUID. Use page names as they appear in LogSeq, or the UUID from other API calls."
                                 }
                             },
                             "required": ["name_or_uuid"],
@@ -224,14 +222,14 @@ impl ServerHandler for LogSeqMcpServer {
                 },
                 Tool {
                     name: "get_block".into(),
-                    description: Some("Get a specific block by UUID".into()),
+                    description: Some("Get detailed information about a specific block by UUID. Returns block content, properties, children, and metadata.".into()),
                     input_schema: Arc::new(
                         serde_json::json!({
                             "type": "object",
                             "properties": {
                                 "uuid": {
                                     "type": "string",
-                                    "description": "The UUID of the block"
+                                    "description": "The UUID of the block to retrieve. UUIDs can be obtained from other API calls like create_block, search, or datascript_query."
                                 }
                             },
                             "required": ["uuid"],
@@ -246,7 +244,7 @@ impl ServerHandler for LogSeqMcpServer {
                 },
                 Tool {
                     name: "get_current_page".into(),
-                    description: Some("Get the currently active page".into()),
+                    description: Some("Get information about the currently active/focused page in the LogSeq interface. Useful for context-aware operations.".into()),
                     input_schema: Arc::new(
                         serde_json::json!({
                             "type": "object",
@@ -262,7 +260,7 @@ impl ServerHandler for LogSeqMcpServer {
                 },
                 Tool {
                     name: "get_current_block".into(),
-                    description: Some("Get the currently active block".into()),
+                    description: Some("Get information about the currently active/focused block in the LogSeq interface. Useful for context-aware operations.".into()),
                     input_schema: Arc::new(
                         serde_json::json!({
                             "type": "object",
@@ -278,14 +276,14 @@ impl ServerHandler for LogSeqMcpServer {
                 },
                 Tool {
                     name: "datascript_query".into(),
-                    description: Some("Execute a Datascript query against the LogSeq database".into()),
+                    description: Some("Execute a Datascript query against the LogSeq database for advanced data retrieval. Use this for complex queries that other tools cannot handle. Requires knowledge of Datascript syntax and LogSeq's data model.".into()),
                     input_schema: Arc::new(
                         serde_json::json!({
                             "type": "object",
                             "properties": {
                                 "query": {
                                     "type": "string",
-                                    "description": "Datascript query string (e.g., '[:find ?e :where [?e :block/content]]')"
+                                    "description": "Datascript query string. Example: '[:find ?uuid ?content :where [?b :block/uuid ?uuid] [?b :block/content ?content] :limit 10]'. Requires knowledge of LogSeq's data schema."
                                 }
                             },
                             "required": ["query"],
@@ -300,7 +298,7 @@ impl ServerHandler for LogSeqMcpServer {
                 },
                 Tool {
                     name: "get_current_graph".into(),
-                    description: Some("Get information about the current graph".into()),
+                    description: Some("Get information about the current LogSeq graph including name, path, and configuration details.".into()),
                     input_schema: Arc::new(
                         serde_json::json!({
                             "type": "object",
@@ -316,14 +314,14 @@ impl ServerHandler for LogSeqMcpServer {
                 },
                 Tool {
                     name: "get_state_from_store".into(),
-                    description: Some("Get application state from the store".into()),
+                    description: Some("Get application state from the LogSeq store using a key path (e.g., 'ui/theme', 'ui/sidebar-open'). Useful for accessing LogSeq's internal application state.".into()),
                     input_schema: Arc::new(
                         serde_json::json!({
                             "type": "object",
                             "properties": {
                                 "key": {
                                     "type": "string",
-                                    "description": "State key to retrieve (e.g., 'ui/theme', 'ui/sidebar-open')"
+                                    "description": "State key path to retrieve from LogSeq's application store. Examples: 'ui/theme', 'ui/sidebar-open', 'config/preferred-format'."
                                 }
                             },
                             "required": ["key"],
@@ -338,7 +336,7 @@ impl ServerHandler for LogSeqMcpServer {
                 },
                 Tool {
                     name: "get_user_configs".into(),
-                    description: Some("Get user configuration settings".into()),
+                    description: Some("Get user configuration settings for the LogSeq application. Returns the current user preferences and configuration options.".into()),
                     input_schema: Arc::new(
                         serde_json::json!({
                             "type": "object",
@@ -354,26 +352,86 @@ impl ServerHandler for LogSeqMcpServer {
                 },
                 Tool {
                     name: "update_block".into(),
-                    description: Some("Update the content of an existing block".into()),
+                    description: Some("Update the content of an existing block by UUID. Can also update block properties. Use this to modify existing content in LogSeq.".into()),
                     input_schema: Arc::new(
                         serde_json::json!({
                             "type": "object",
                             "properties": {
                                 "uuid": {
                                     "type": "string",
-                                    "description": "The UUID of the block to update"
+                                    "description": "The UUID of the block to update. Must be an existing block UUID."
                                 },
                                 "content": {
                                     "type": "string",
-                                    "description": "The new content for the block"
+                                    "description": "The new content for the block in markdown format. This will replace the existing block content."
                                 },
                                 "properties": {
                                     "type": "object",
-                                    "description": "Optional block properties to update",
+                                    "description": "Optional block properties to update. These are key-value pairs that define metadata for the block (e.g., {'priority': 'high', 'status': 'todo'}).",
                                     "additionalProperties": true
                                 }
                             },
                             "required": ["uuid", "content"],
+                            "additionalProperties": false
+                        })
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                    ),
+                    annotations: None,
+                    output_schema: None,
+                },
+                Tool {
+                    name: "delete_block".into(),
+                    description: Some("Delete an existing block by UUID. Use with caution as this operation cannot be undone. The block and all its children will be permanently removed from LogSeq.".into()),
+                    input_schema: Arc::new(
+                        serde_json::json!({
+                            "type": "object",
+                            "properties": {
+                                "uuid": {
+                                    "type": "string",
+                                    "description": "The UUID of the block to delete. Must be an existing block UUID. This operation will also delete all child blocks."
+                                }
+                            },
+                            "required": ["uuid"],
+                            "additionalProperties": false
+                        })
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                    ),
+                    annotations: None,
+                    output_schema: None,
+                },
+                Tool {
+                    name: "delete_page".into(),
+                    description: Some("Delete an existing page by name. Use with caution as this operation cannot be undone. The page and all its content will be permanently removed from LogSeq.".into()),
+                    input_schema: Arc::new(
+                        serde_json::json!({
+                            "type": "object",
+                            "properties": {
+                                "page_name": {
+                                    "type": "string",
+                                    "description": "The name of the page to delete. Must be an existing page name as it appears in LogSeq. This operation will delete the entire page and all its blocks."
+                                }
+                            },
+                            "required": ["page_name"],
+                            "additionalProperties": false
+                        })
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                    ),
+                    annotations: None,
+                    output_schema: None,
+                },
+                Tool {
+                    name: "find_incomplete_todos".into(),
+                    description: Some("Search for all incomplete todos across all pages in LogSeq. Returns todos with markers like TODO, DOING, LATER, NOW, and WAITING. Useful for getting an overview of all outstanding tasks and their current status.".into()),
+                    input_schema: Arc::new(
+                        serde_json::json!({
+                            "type": "object",
+                            "properties": {},
                             "additionalProperties": false
                         })
                         .as_object()
@@ -410,9 +468,7 @@ impl ServerHandler for LogSeqMcpServer {
 
                 Ok(CallToolResult {
                     content: Some(vec![rmcp::model::Content {
-                        raw: RawContent::Text(RawTextContent {
-                            text: content_text,
-                        }),
+                        raw: RawContent::Text(RawTextContent { text: content_text }),
                         annotations: None,
                     }]),
                     structured_content: None,
@@ -423,9 +479,7 @@ impl ServerHandler for LogSeqMcpServer {
                 let page_name = params
                     .arguments
                     .and_then(|args| args.get("page_name")?.as_str().map(String::from))
-                    .ok_or_else(|| {
-                        McpError::invalid_params("Missing page_name parameter", None)
-                    })?;
+                    .ok_or_else(|| McpError::invalid_params("Missing page_name parameter", None))?;
 
                 let blocks = client
                     .get_page_blocks_tree(&page_name)
@@ -435,9 +489,7 @@ impl ServerHandler for LogSeqMcpServer {
                 let content_text = format_blocks_as_markdown(&blocks);
                 Ok(CallToolResult {
                     content: Some(vec![rmcp::model::Content {
-                        raw: RawContent::Text(RawTextContent {
-                            text: content_text,
-                        }),
+                        raw: RawContent::Text(RawTextContent { text: content_text }),
                         annotations: None,
                     }]),
                     structured_content: None,
@@ -486,9 +538,7 @@ impl ServerHandler for LogSeqMcpServer {
                 let content_text = format_search_results(&results);
                 Ok(CallToolResult {
                     content: Some(vec![rmcp::model::Content {
-                        raw: RawContent::Text(RawTextContent {
-                            text: content_text,
-                        }),
+                        raw: RawContent::Text(RawTextContent { text: content_text }),
                         annotations: None,
                     }]),
                     structured_content: None,
@@ -502,9 +552,7 @@ impl ServerHandler for LogSeqMcpServer {
                 let content = arguments
                     .get("content")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        McpError::invalid_params("Missing content parameter", None)
-                    })?;
+                    .ok_or_else(|| McpError::invalid_params("Missing content parameter", None))?;
                 let parent = arguments
                     .get("parent")
                     .and_then(|v| v.as_str())
@@ -540,7 +588,9 @@ impl ServerHandler for LogSeqMcpServer {
                 let name_or_uuid = params
                     .arguments
                     .and_then(|args| args.get("name_or_uuid")?.as_str().map(String::from))
-                    .ok_or_else(|| McpError::invalid_params("Missing name_or_uuid parameter", None))?;
+                    .ok_or_else(|| {
+                        McpError::invalid_params("Missing name_or_uuid parameter", None)
+                    })?;
 
                 let page = client
                     .get_page(&name_or_uuid)
@@ -550,7 +600,8 @@ impl ServerHandler for LogSeqMcpServer {
                 Ok(CallToolResult {
                     content: Some(vec![rmcp::model::Content {
                         raw: RawContent::Text(RawTextContent {
-                            text: serde_json::to_string_pretty(&page).unwrap_or_else(|_| "Error serializing page".to_string()),
+                            text: serde_json::to_string_pretty(&page)
+                                .unwrap_or_else(|_| "Error serializing page".to_string()),
                         }),
                         annotations: None,
                     }]),
@@ -572,7 +623,8 @@ impl ServerHandler for LogSeqMcpServer {
                 Ok(CallToolResult {
                     content: Some(vec![rmcp::model::Content {
                         raw: RawContent::Text(RawTextContent {
-                            text: serde_json::to_string_pretty(&block).unwrap_or_else(|_| "Error serializing block".to_string()),
+                            text: serde_json::to_string_pretty(&block)
+                                .unwrap_or_else(|_| "Error serializing block".to_string()),
                         }),
                         annotations: None,
                     }]),
@@ -589,7 +641,8 @@ impl ServerHandler for LogSeqMcpServer {
                 Ok(CallToolResult {
                     content: Some(vec![rmcp::model::Content {
                         raw: RawContent::Text(RawTextContent {
-                            text: serde_json::to_string_pretty(&page).unwrap_or_else(|_| "Error serializing page".to_string()),
+                            text: serde_json::to_string_pretty(&page)
+                                .unwrap_or_else(|_| "Error serializing page".to_string()),
                         }),
                         annotations: None,
                     }]),
@@ -606,7 +659,8 @@ impl ServerHandler for LogSeqMcpServer {
                 Ok(CallToolResult {
                     content: Some(vec![rmcp::model::Content {
                         raw: RawContent::Text(RawTextContent {
-                            text: serde_json::to_string_pretty(&block).unwrap_or_else(|_| "Error serializing block".to_string()),
+                            text: serde_json::to_string_pretty(&block)
+                                .unwrap_or_else(|_| "Error serializing block".to_string()),
                         }),
                         annotations: None,
                     }]),
@@ -628,7 +682,8 @@ impl ServerHandler for LogSeqMcpServer {
                 Ok(CallToolResult {
                     content: Some(vec![rmcp::model::Content {
                         raw: RawContent::Text(RawTextContent {
-                            text: serde_json::to_string_pretty(&result).unwrap_or_else(|_| "Error serializing result".to_string()),
+                            text: serde_json::to_string_pretty(&result)
+                                .unwrap_or_else(|_| "Error serializing result".to_string()),
                         }),
                         annotations: None,
                     }]),
@@ -645,7 +700,8 @@ impl ServerHandler for LogSeqMcpServer {
                 Ok(CallToolResult {
                     content: Some(vec![rmcp::model::Content {
                         raw: RawContent::Text(RawTextContent {
-                            text: serde_json::to_string_pretty(&graph).unwrap_or_else(|_| "Error serializing graph info".to_string()),
+                            text: serde_json::to_string_pretty(&graph)
+                                .unwrap_or_else(|_| "Error serializing graph info".to_string()),
                         }),
                         annotations: None,
                     }]),
@@ -667,7 +723,8 @@ impl ServerHandler for LogSeqMcpServer {
                 Ok(CallToolResult {
                     content: Some(vec![rmcp::model::Content {
                         raw: RawContent::Text(RawTextContent {
-                            text: serde_json::to_string_pretty(&state).unwrap_or_else(|_| "Error serializing state".to_string()),
+                            text: serde_json::to_string_pretty(&state)
+                                .unwrap_or_else(|_| "Error serializing state".to_string()),
                         }),
                         annotations: None,
                     }]),
@@ -684,7 +741,8 @@ impl ServerHandler for LogSeqMcpServer {
                 Ok(CallToolResult {
                     content: Some(vec![rmcp::model::Content {
                         raw: RawContent::Text(RawTextContent {
-                            text: serde_json::to_string_pretty(&configs).unwrap_or_else(|_| "Error serializing configs".to_string()),
+                            text: serde_json::to_string_pretty(&configs)
+                                .unwrap_or_else(|_| "Error serializing configs".to_string()),
                         }),
                         annotations: None,
                     }]),
@@ -724,7 +782,69 @@ impl ServerHandler for LogSeqMcpServer {
                     is_error: Some(false),
                 })
             }
-            _ => Err(McpError::method_not_found::<rmcp::model::CallToolRequestMethod>()),
+            "delete_block" => {
+                let uuid = params
+                    .arguments
+                    .and_then(|args| args.get("uuid")?.as_str().map(String::from))
+                    .ok_or_else(|| McpError::invalid_params("Missing uuid parameter", None))?;
+
+                client
+                    .remove_block(&uuid)
+                    .await
+                    .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+                Ok(CallToolResult {
+                    content: Some(vec![rmcp::model::Content {
+                        raw: RawContent::Text(RawTextContent {
+                            text: format!("Successfully deleted block with UUID: {}", uuid),
+                        }),
+                        annotations: None,
+                    }]),
+                    structured_content: None,
+                    is_error: Some(false),
+                })
+            }
+            "delete_page" => {
+                let page_name = params
+                    .arguments
+                    .and_then(|args| args.get("page_name")?.as_str().map(String::from))
+                    .ok_or_else(|| McpError::invalid_params("Missing page_name parameter", None))?;
+
+                client
+                    .delete_page(&page_name)
+                    .await
+                    .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+                Ok(CallToolResult {
+                    content: Some(vec![rmcp::model::Content {
+                        raw: RawContent::Text(RawTextContent {
+                            text: format!("Successfully deleted page: {}", page_name),
+                        }),
+                        annotations: None,
+                    }]),
+                    structured_content: None,
+                    is_error: Some(false),
+                })
+            }
+            "find_incomplete_todos" => {
+                let todos = client
+                    .find_incomplete_todos()
+                    .await
+                    .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+                let content_text = format_todos(&todos);
+                Ok(CallToolResult {
+                    content: Some(vec![rmcp::model::Content {
+                        raw: RawContent::Text(RawTextContent { text: content_text }),
+                        annotations: None,
+                    }]),
+                    structured_content: None,
+                    is_error: Some(false),
+                })
+            }
+            _ => Err(McpError::method_not_found::<
+                rmcp::model::CallToolRequestMethod,
+            >()),
         }
     }
 }
@@ -738,8 +858,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     // Create LogSeq client
-    let logseq_url =
-        env::var("LOGSEQ_API_URL").unwrap_or_else(|_| "http://localhost:12315".into());
+    let logseq_url = env::var("LOGSEQ_API_URL").unwrap_or_else(|_| "http://localhost:12315".into());
     let logseq_token = env::var("LOGSEQ_API_TOKEN").expect("LOGSEQ_API_TOKEN must be set");
     let logseq_client = LogSeqClient::new(&logseq_url, &logseq_token)?;
 
