@@ -352,6 +352,37 @@ impl ServerHandler for LogSeqMcpServer {
                     annotations: None,
                     output_schema: None,
                 },
+                Tool {
+                    name: "update_block".into(),
+                    description: Some("Update the content of an existing block".into()),
+                    input_schema: Arc::new(
+                        serde_json::json!({
+                            "type": "object",
+                            "properties": {
+                                "uuid": {
+                                    "type": "string",
+                                    "description": "The UUID of the block to update"
+                                },
+                                "content": {
+                                    "type": "string",
+                                    "description": "The new content for the block"
+                                },
+                                "properties": {
+                                    "type": "object",
+                                    "description": "Optional block properties to update",
+                                    "additionalProperties": true
+                                }
+                            },
+                            "required": ["uuid", "content"],
+                            "additionalProperties": false
+                        })
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                    ),
+                    annotations: None,
+                    output_schema: None,
+                },
             ],
             next_cursor: None,
         })
@@ -654,6 +685,38 @@ impl ServerHandler for LogSeqMcpServer {
                     content: Some(vec![rmcp::model::Content {
                         raw: RawContent::Text(RawTextContent {
                             text: serde_json::to_string_pretty(&configs).unwrap_or_else(|_| "Error serializing configs".to_string()),
+                        }),
+                        annotations: None,
+                    }]),
+                    structured_content: None,
+                    is_error: Some(false),
+                })
+            }
+            "update_block" => {
+                let arguments = params.arguments.ok_or_else(|| {
+                    McpError::invalid_params("Missing arguments for update_block", None)
+                })?;
+                let uuid = arguments
+                    .get("uuid")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| McpError::invalid_params("Missing uuid parameter", None))?;
+                let content = arguments
+                    .get("content")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| McpError::invalid_params("Missing content parameter", None))?;
+                let properties = arguments
+                    .get("properties")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok());
+
+                let block = client
+                    .update_block(uuid, content, properties)
+                    .await
+                    .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+                Ok(CallToolResult {
+                    content: Some(vec![rmcp::model::Content {
+                        raw: RawContent::Text(RawTextContent {
+                            text: format!("Updated block with UUID: {}", block.uuid),
                         }),
                         annotations: None,
                     }]),

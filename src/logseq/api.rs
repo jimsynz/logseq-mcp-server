@@ -128,6 +128,15 @@ impl LogSeqClient {
         Ok(serde_json::from_value(result)?)
     }
 
+    pub async fn update_block(&self, uuid: &str, content: &str, properties: Option<HashMap<String, Value>>) -> Result<Block> {
+        let mut args = vec![uuid.into(), content.into()];
+        if let Some(props) = properties {
+            args.push(serde_json::json!({"properties": props}));
+        }
+        let result = self.call_api("logseq.Editor.updateBlock", args).await?;
+        Ok(serde_json::from_value(result)?)
+    }
+
     pub async fn search(&self, query: &str) -> Result<Vec<SearchResult>> {
         let result = self.call_api("logseq.Db.q", vec![query.into()]).await?;
         Ok(serde_json::from_value(result)?)

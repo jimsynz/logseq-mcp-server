@@ -96,7 +96,7 @@ Restart Claude Desktop to load the new server configuration. 🚀
 
 ## 🧰 Available Tools
 
-The server provides 12 MCP tools organized into these categories:
+The server provides 13 MCP tools organized into these categories:
 
 ### 📄 Page Management
 - **`list_pages`** 📋 - List all pages in your LogSeq graph
@@ -108,6 +108,7 @@ The server provides 12 MCP tools organized into these categories:
 ### 🧱 Block Operations
 - **`get_block`** 🟦 - Get specific block by UUID
 - **`create_block`** ✏️ - Insert new blocks with positioning options
+- **`update_block`** 📝 - Update the content of an existing block
 - **`get_current_block`** 🎯 - Get the currently active block
 
 ### 🔍 Search & Query
@@ -187,6 +188,7 @@ This server exposes the following confirmed working LogSeq HTTP API methods:
 - ✅ `logseq.Editor.getCurrentPage`
 - ✅ `logseq.Editor.getCurrentBlock`
 - ✅ `logseq.Editor.insertBlock`
+- ✅ `logseq.Editor.updateBlock`
 - ✅ `logseq.DB.datascriptQuery`
 - ✅ `logseq.App.getCurrentGraph`
 - ✅ `logseq.App.getStateFromStore`
