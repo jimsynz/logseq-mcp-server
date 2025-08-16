@@ -412,9 +412,7 @@ impl McpTestContext {
                                             "page_name": page_name
                                         });
 
-                                        match self
-                                            .call_tool("delete_page", Some(delete_args))
-                                            .await
+                                        match self.call_tool("delete_page", Some(delete_args)).await
                                         {
                                             Ok(_) => {
                                                 println!(
