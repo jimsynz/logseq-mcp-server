@@ -1487,35 +1487,31 @@ Total character count: ~2000+ characters"#;
         let get_args = json!({"uuid": uuid});
         match ctx.call_tool("get_block", Some(get_args)).await {
             Ok(result) => {
-                if let Some(content_arr) = result.get("content").and_then(|c| c.as_array()) {
-                    if let Some(text_obj) = content_arr.first() {
-                        if let Some(text) = text_obj.get("text").and_then(|t| t.as_str()) {
-                            // Parse the JSON response to get the actual block content
-                            if let Ok(block_json) = serde_json::from_str::<serde_json::Value>(text) {
-                                if let Some(content) = block_json.get("content").and_then(|c| c.as_str()) {
-                                    let content_len = content.len();
-                                    println!("   ✓ Retrieved block with {} characters", content_len);
-                                    
-                                    // Verify key elements are present
-                                    let has_heading = content.contains("# Comprehensive Markdown Test");
-                                    let has_code_block = content.contains("```rust");
-                                    let has_table = content.contains("| Language |");
-                                    let has_math = content.contains("$E = mc^2$");
-                                    let has_emoji = content.contains("🚀");
-                                    
-                                    println!("   Content verification:");
-                                    println!("     - Main heading: {}", if has_heading { "✓" } else { "✗" });
-                                    println!("     - Code blocks: {}", if has_code_block { "✓" } else { "✗" });
-                                    println!("     - Tables: {}", if has_table { "✓" } else { "✗" });
-                                    println!("     - Math expressions: {}", if has_math { "✓" } else { "✗" });
-                                    println!("     - Emojis: {}", if has_emoji { "✓" } else { "✗" });
-                                    
-                                    if !has_heading || !has_code_block {
-                                        println!("   ⚠️  Some content may have been truncated or split");
-                                    }
-                                }
-                            }
-                        }
+                if let Some(content_arr) = result.get("content").and_then(|c| c.as_array())
+                    && let Some(text_obj) = content_arr.first()
+                    && let Some(text) = text_obj.get("text").and_then(|t| t.as_str())
+                    && let Ok(block_json) = serde_json::from_str::<serde_json::Value>(text)
+                    && let Some(content) = block_json.get("content").and_then(|c| c.as_str())
+                {
+                    let content_len = content.len();
+                    println!("   ✓ Retrieved block with {} characters", content_len);
+                    
+                    // Verify key elements are present
+                    let has_heading = content.contains("# Comprehensive Markdown Test");
+                    let has_code_block = content.contains("```rust");
+                    let has_table = content.contains("| Language |");
+                    let has_math = content.contains("$E = mc^2$");
+                    let has_emoji = content.contains("🚀");
+                    
+                    println!("   Content verification:");
+                    println!("     - Main heading: {}", if has_heading { "✓" } else { "✗" });
+                    println!("     - Code blocks: {}", if has_code_block { "✓" } else { "✗" });
+                    println!("     - Tables: {}", if has_table { "✓" } else { "✗" });
+                    println!("     - Math expressions: {}", if has_math { "✓" } else { "✗" });
+                    println!("     - Emojis: {}", if has_emoji { "✓" } else { "✗" });
+                    
+                    if !has_heading || !has_code_block {
+                        println!("   ⚠️  Some content may have been truncated or split");
                     }
                 }
                 println!("   ✓ Block content retrieved and verified");
