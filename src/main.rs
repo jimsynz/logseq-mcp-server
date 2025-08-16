@@ -2,6 +2,7 @@ mod logseq;
 mod tools;
 
 use anyhow::Result;
+use clap::{Arg, Command};
 use logseq::api::{InsertBlockOptions, LogSeqClient};
 use rmcp::{
     ErrorData as McpError,
@@ -849,6 +850,22 @@ impl ServerHandler for LogSeqMcpServer {
     }
 }
 
+async fn check_connection(logseq_client: &LogSeqClient) -> Result<()> {
+    match logseq_client.get_all_pages().await {
+        Ok(pages) => {
+            println!(
+                "✓ Connection successful! Found {} pages in LogSeq.",
+                pages.len()
+            );
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("✗ Connection failed: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize environment and logging
@@ -857,10 +874,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_writer(std::io::stderr)
         .init();
 
+    // Parse command line arguments
+    let matches = Command::new("logseq-mcp-server")
+        .version(env!("CARGO_PKG_VERSION"))
+        .about("LogSeq MCP Server - provides MCP interface to LogSeq HTTP API")
+        .arg(
+            Arg::new("check")
+                .long("check")
+                .action(clap::ArgAction::SetTrue)
+                .help("Check that the API connection and authentication are working"),
+        )
+        .get_matches();
+
     // Create LogSeq client
     let logseq_url = env::var("LOGSEQ_API_URL").unwrap_or_else(|_| "http://localhost:12315".into());
     let logseq_token = env::var("LOGSEQ_API_TOKEN").expect("LOGSEQ_API_TOKEN must be set");
     let logseq_client = LogSeqClient::new(&logseq_url, &logseq_token)?;
+
+    // Handle check mode
+    if matches.get_flag("check") {
+        return check_connection(&logseq_client).await.map_err(Into::into);
+    }
 
     // Create and run MCP server with STDIO transport
     let service = LogSeqMcpServer::new(logseq_client);

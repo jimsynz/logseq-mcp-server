@@ -90,7 +90,22 @@ Add the server to your `claude_desktop_config.json`:
 }
 ```
 
-### 4. 🔄 Restart Claude Desktop
+### 4. 🧪 Test Your Connection
+
+Test that the API connection and authentication are working:
+
+```bash
+logseq-mcp-server --check
+```
+
+If successful, you'll see:
+```
+✓ Connection successful! Found X pages in LogSeq.
+```
+
+If there are issues, you'll see error messages to help debug the problem.
+
+### 5. 🔄 Restart Claude Desktop
 
 Restart Claude Desktop to load the new server configuration. 🚀
 
