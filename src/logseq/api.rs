@@ -19,11 +19,11 @@ pub struct Page {
     pub properties: Option<HashMap<String, Value>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Block {
     pub uuid: String,
     pub content: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_page_ref")]
     pub page: Option<PageRef>,
     #[serde(default)]
     pub properties: Option<HashMap<String, Value>>,
@@ -35,7 +35,74 @@ pub struct Block {
     pub format: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+// Custom deserializer to handle both integer and PageRef formats
+fn deserialize_page_ref<'de, D>(deserializer: D) -> Result<Option<PageRef>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+
+    struct PageRefVisitor;
+
+    impl<'de> Visitor<'de> for PageRefVisitor {
+        type Value = Option<PageRef>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a page reference as an integer or object")
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            deserializer.deserialize_any(PageRefInnerVisitor)
+        }
+    }
+
+    struct PageRefInnerVisitor;
+
+    impl<'de> Visitor<'de> for PageRefInnerVisitor {
+        type Value = Option<PageRef>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a page reference as an integer or object")
+        }
+
+        fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(Some(PageRef { id: v }))
+        }
+
+        fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(Some(PageRef { id: v as u64 }))
+        }
+
+        fn visit_map<A>(self, map: A) -> Result<Self::Value, A::Error>
+        where
+            A: de::MapAccess<'de>,
+        {
+            let page_ref: PageRef =
+                serde::Deserialize::deserialize(de::value::MapAccessDeserializer::new(map))?;
+            Ok(Some(page_ref))
+        }
+    }
+
+    deserializer.deserialize_option(PageRefVisitor)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PageRef {
     pub id: u64,
 }
@@ -143,60 +210,31 @@ impl LogSeqClient {
     }
 
     pub async fn insert_block(&self, content: &str, opts: InsertBlockOptions) -> Result<Block> {
-        let properties_backup = opts.properties.clone();
-        let args = vec![content.into(), serde_json::to_value(opts)?];
+        // LogSeq's insertBlock API expects: [parent_or_sibling, content, options]
+        // where parent_or_sibling is a page name or block UUID
+        let parent_or_sibling = opts
+            .parent
+            .clone()
+            .or(opts.sibling.clone())
+            .ok_or_else(|| anyhow::anyhow!("Either parent or sibling must be specified"))?;
+
+        // For insertBlock, we just need [parent, content]
+        // The options like 'before' are for different use cases
+        let args = vec![parent_or_sibling.into(), content.into()];
         tracing::debug!("insert_block args: {:?}", args);
         let result = self.call_api("logseq.Editor.insertBlock", args).await?;
         tracing::debug!("insert_block result: {:?}", result);
 
-        // The LogSeq API can return different formats depending on success/failure
-        // Let's handle all possible return types more gracefully
-
+        // The LogSeq API should return a block object with UUID
         if result.is_null() {
             return Err(anyhow::anyhow!(
-                "insertBlock returned null - block creation may have failed"
+                "insertBlock returned null - block creation failed"
             ));
         }
 
-        // Try to extract UUID from various possible response formats
-        let uuid_to_fetch = if let Some(uuid_value) = result.get("uuid") {
-            // Response has a uuid field
-            uuid_value.as_str().map(String::from)
-        } else if let Some(uuid_str) = result.as_str() {
-            // Response is directly a UUID string
-            Some(uuid_str.to_string())
-        } else if let Ok(block) = serde_json::from_value::<Block>(result.clone()) {
-            // Response is already a complete Block object
-            return Ok(block);
-        } else {
-            None
-        };
-
-        if let Some(uuid) = uuid_to_fetch {
-            tracing::debug!("Fetching block details for UUID: {}", uuid);
-            match self.get_block(&uuid).await {
-                Ok(block) => Ok(block),
-                Err(e) => {
-                    tracing::warn!("Failed to fetch block details for {}: {}", uuid, e);
-                    // Return a minimal block if we can't fetch details
-                    Ok(Block {
-                        uuid,
-                        content: content.to_string(),
-                        page: None,
-                        properties: properties_backup,
-                        children: vec![],
-                        level: None,
-                        format: None,
-                    })
-                }
-            }
-        } else {
-            Err(anyhow::anyhow!(
-                "Unexpected insertBlock response format: {}",
-                serde_json::to_string_pretty(&result)
-                    .unwrap_or_else(|_| "<unparseable>".to_string())
-            ))
-        }
+        // Parse the response as a Block
+        serde_json::from_value(result)
+            .map_err(|e| anyhow::anyhow!("Failed to parse insertBlock response: {}", e))
     }
 
     pub async fn update_block(
@@ -270,6 +308,11 @@ impl LogSeqClient {
         let result = self
             .call_api("logseq.Editor.getBlock", vec![uuid.into()])
             .await?;
+
+        if result.is_null() {
+            return Err(anyhow::anyhow!("Block with UUID {} not found", uuid));
+        }
+
         Ok(serde_json::from_value(result)?)
     }
 

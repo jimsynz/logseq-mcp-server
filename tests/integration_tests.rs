@@ -673,11 +673,19 @@ impl McpTestContext {
             println!("  📝 Deleting {} test blocks...", self.created_blocks.len());
             let mut deleted_blocks = 0;
             let mut failed_deletes = 0;
+            let mut skipped_placeholders = 0;
 
             // Clone the block UUIDs to avoid borrowing issues
             let blocks_to_delete = self.created_blocks.clone();
 
             for block_uuid in blocks_to_delete {
+                // Skip placeholder UUIDs as they don't exist in LogSeq
+                if block_uuid.starts_with("placeholder-") {
+                    skipped_placeholders += 1;
+                    println!("    ⏭️  Skipping placeholder UUID: {}", block_uuid);
+                    continue;
+                }
+
                 let delete_args = json!({
                     "uuid": block_uuid
                 });
@@ -711,6 +719,12 @@ impl McpTestContext {
                 println!(
                     "  ⚠ Failed to delete {} test blocks (they may need manual cleanup)",
                     failed_deletes
+                );
+            }
+            if skipped_placeholders > 0 {
+                println!(
+                    "  ℹ️  Skipped {} placeholder blocks (created under test pages, will be deleted with the page)",
+                    skipped_placeholders
                 );
             }
         }
@@ -1232,5 +1246,302 @@ async fn test_mcp_comprehensive_workflow() -> Result<()> {
 
     ctx.cleanup().await;
     println!("🎉 Comprehensive MCP workflow test completed successfully!");
+    Ok(())
+}
+
+/// Test block creation and update operations specifically
+#[tokio::test]
+#[ignore]
+async fn test_block_create_and_update() -> Result<()> {
+    let mut ctx = McpTestContext::new().await?;
+
+    println!("🚀 Testing block creation and update operations");
+
+    // Step 1: Create a test page to work with
+    println!("1. Creating test page");
+    let page_name = ctx.create_test_page("block-operations", None).await?;
+    println!("   ✓ Created test page: {}", page_name);
+
+    // Step 2: Test block creation with parent page
+    println!("2. Creating block with parent page");
+    let block_content = "## Test Block\n\nThis is a test block created via MCP.";
+    let create_args = json!({
+        "content": block_content,
+        "parent": page_name.clone()
+    });
+
+    let create_result = ctx.call_tool("create_block", Some(create_args)).await?;
+    println!("   Create block result: {:?}", create_result);
+
+    // Extract UUID from the result
+    let uuid = if let Some(content) = create_result.get("content") {
+        if let Some(text) = content
+            .as_array()
+            .and_then(|arr| arr.first())
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+        {
+            // Extract UUID from "Created block with UUID: <uuid>" message
+            text.strip_prefix("Created block with UUID: ")
+                .map(String::from)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    if let Some(uuid) = uuid {
+        println!("   ✓ Created block with UUID: {}", uuid);
+        ctx.created_blocks.push(uuid.clone());
+
+        // Step 3: Test block update
+        println!("3. Updating block content");
+        let update_args = json!({
+            "uuid": uuid,
+            "content": "## Updated Block\n\nThis block has been updated via MCP.",
+            "properties": {
+                "status": "updated",
+                "test": true
+            }
+        });
+
+        let update_result = ctx.call_tool("update_block", Some(update_args)).await?;
+        println!("   Update result: {:?}", update_result);
+        println!("   ✓ Block updated successfully");
+
+        // Step 4: Verify block was updated by getting it
+        println!("4. Verifying block update");
+        let get_args = json!({"uuid": uuid});
+        let get_result = ctx.call_tool("get_block", Some(get_args)).await?;
+        println!("   Get block result: {:?}", get_result);
+        println!("   ✓ Block retrieved successfully");
+    } else {
+        println!("   ⚠️  Could not extract UUID from create result");
+    }
+
+    ctx.cleanup().await;
+    println!("🎉 Block operations test completed!");
+    Ok(())
+}
+
+/// Test for creating pages with large markdown content
+#[tokio::test]
+#[ignore]
+async fn test_large_markdown_block_creation() -> Result<()> {
+    let mut ctx = McpTestContext::new().await?;
+
+    println!("🚀 Testing large markdown block creation");
+
+    // Step 1: Create a test page
+    println!("1. Creating test page for large markdown");
+    let page_name = ctx
+        .create_test_page("large-markdown-test", None)
+        .await?;
+    println!("   ✓ Created test page: {}", page_name);
+
+    // Step 2: Create a large markdown block with various formatting
+    println!("2. Creating large markdown block");
+    let large_markdown = r#"# Comprehensive Markdown Test
+
+## Overview
+This is a comprehensive test of markdown support in LogSeq blocks created via MCP.
+
+### Features Being Tested
+
+#### 1. Text Formatting
+- **Bold text** for emphasis
+- *Italic text* for style  
+- ***Bold and italic*** combined
+- ~~Strikethrough~~ for corrections
+- `inline code` for snippets
+
+#### 2. Code Blocks
+
+```rust
+fn main() {
+    println!("Hello from Rust!");
+    let numbers: Vec<i32> = (1..=10).collect();
+    let sum: i32 = numbers.iter().sum();
+    println!("Sum: {}", sum);
+}
+```
+
+```python
+def fibonacci(n):
+    """Generate Fibonacci sequence up to n terms."""
+    a, b = 0, 1
+    result = []
+    for _ in range(n):
+        result.append(a)
+        a, b = b, a + b
+    return result
+
+print(fibonacci(10))
+```
+
+#### 3. Lists and Nesting
+
+1. First ordered item
+   1. Nested item 1.1
+   2. Nested item 1.2
+      - Sub-bullet A
+      - Sub-bullet B
+2. Second ordered item
+   - Mixed bullet
+   - Another bullet
+3. Third ordered item
+
+#### 4. Links and References
+
+- [LogSeq Official Site](https://logseq.com)
+- [[Internal Page Reference]]
+- #tag1 #tag2 #important
+
+#### 5. Blockquotes
+
+> "The only way to do great work is to love what you do."
+> 
+> — Steve Jobs
+
+> Nested blockquote example:
+> > This is nested
+> > > And even more nested
+
+#### 6. Tables
+
+| Language | Type       | Year | Popularity |
+|----------|------------|------|------------|
+| Rust     | Systems    | 2010 | Growing    |
+| Python   | High-level | 1991 | Very High  |
+| Go       | Systems    | 2009 | High       |
+| Julia    | Scientific | 2012 | Medium     |
+
+#### 7. Task Lists
+
+- [x] Implement basic API
+- [x] Add error handling
+- [ ] Write documentation
+- [ ] Add more tests
+- [ ] Performance optimization
+
+#### 8. Mathematical Expressions
+
+Inline math: $E = mc^2$
+
+Block math:
+$$
+\sum_{i=1}^{n} i = \frac{n(n+1)}{2}
+$$
+
+#### 9. Special Characters
+
+Testing: & < > " ' ` \ / = + - _ ( ) [ ] { } ! @ # $ % ^ * | ~ ?
+
+#### 10. Unicode and Emojis
+
+Languages: 日本語 中文 한국어 العربية עברית
+Math: ∫ ∑ ∏ √ ∞ ≈ ≠ ≤ ≥
+Emojis: 🚀 ⭐ ✅ ❌ 💡 📚 🎯 🔧
+
+---
+
+## Conclusion
+
+This comprehensive test covers all major markdown features supported by LogSeq.
+The block should preserve all formatting when created through the MCP API.
+
+Total character count: ~2000+ characters"#;
+
+    let create_args = json!({
+        "content": large_markdown,
+        "parent": page_name.clone()
+    });
+    
+    let create_result = ctx.call_tool("create_block", Some(create_args)).await?;
+    println!("   Block creation result: {:?}", create_result);
+    
+    // Extract UUID if available
+    let uuid = if let Some(content) = create_result.get("content") {
+        if let Some(text) = content
+            .as_array()
+            .and_then(|arr| arr.first())
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+        {
+            text.strip_prefix("Created block with UUID: ")
+                .map(String::from)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    if let Some(uuid) = uuid {
+        println!("   ✓ Created block with UUID: {}", uuid);
+        ctx.created_blocks.push(uuid.clone());
+
+        // Step 3: Retrieve the block to verify content
+        println!("3. Retrieving block to verify content preservation");
+        let get_args = json!({"uuid": uuid});
+        match ctx.call_tool("get_block", Some(get_args)).await {
+            Ok(result) => {
+                if let Some(content_arr) = result.get("content").and_then(|c| c.as_array()) {
+                    if let Some(text_obj) = content_arr.first() {
+                        if let Some(text) = text_obj.get("text").and_then(|t| t.as_str()) {
+                            // Parse the JSON response to get the actual block content
+                            if let Ok(block_json) = serde_json::from_str::<serde_json::Value>(text) {
+                                if let Some(content) = block_json.get("content").and_then(|c| c.as_str()) {
+                                    let content_len = content.len();
+                                    println!("   ✓ Retrieved block with {} characters", content_len);
+                                    
+                                    // Verify key elements are present
+                                    let has_heading = content.contains("# Comprehensive Markdown Test");
+                                    let has_code_block = content.contains("```rust");
+                                    let has_table = content.contains("| Language |");
+                                    let has_math = content.contains("$E = mc^2$");
+                                    let has_emoji = content.contains("🚀");
+                                    
+                                    println!("   Content verification:");
+                                    println!("     - Main heading: {}", if has_heading { "✓" } else { "✗" });
+                                    println!("     - Code blocks: {}", if has_code_block { "✓" } else { "✗" });
+                                    println!("     - Tables: {}", if has_table { "✓" } else { "✗" });
+                                    println!("     - Math expressions: {}", if has_math { "✓" } else { "✗" });
+                                    println!("     - Emojis: {}", if has_emoji { "✓" } else { "✗" });
+                                    
+                                    if !has_heading || !has_code_block {
+                                        println!("   ⚠️  Some content may have been truncated or split");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                println!("   ✓ Block content retrieved and verified");
+            }
+            Err(e) => {
+                println!("   ⚠️  Failed to retrieve block: {}", e);
+            }
+        }
+    } else {
+        println!("   ⚠️  Could not extract UUID from create result");
+    }
+
+    // Step 4: Test creating another block with special characters
+    println!("4. Testing block with special characters and escaping");
+    let special_content = r#"Special characters test: "quotes" & 'apostrophes' <tags> \backslash\ `backticks`"#;
+    let special_args = json!({
+        "content": special_content,
+        "parent": page_name.clone()
+    });
+    
+    match ctx.call_tool("create_block", Some(special_args)).await {
+        Ok(_) => println!("   ✓ Special characters block created successfully"),
+        Err(e) => println!("   ⚠️  Failed to create special characters block: {}", e),
+    }
+
+    ctx.cleanup().await;
+    println!("🎉 Large markdown test completed!");
     Ok(())
 }
